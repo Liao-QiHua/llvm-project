@@ -19,13 +19,19 @@ using namespace llvm;
 RV32IInstrInfo::RV32IInstrInfo(const RV32ISubtarget & /*STI*/)
     : RV32IGenInstrInfo(/*CFSetupOpcode=*/-1, /*CFTearDownOpcode=*/-1) {}
 
-void RV32IInstrInfo::copyPhysReg(MachineBasicBlock & /*MBB*/,
-                                 MachineBasicBlock::iterator /*Position*/,
-                                 const DebugLoc & /*DL*/,
-                                 MCRegister /*DestinationRegister*/,
-                                 MCRegister /*SourceRegister*/,
-                                 bool /*KillSource*/) const {
-  llvm_unreachable("RV32I: register copies are implemented in a later patch");
+void RV32IInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
+                                 MachineBasicBlock::iterator Position,
+                                 const DebugLoc &DL,
+                                 MCRegister DestinationRegister,
+                                 MCRegister SourceRegister,
+                                 bool KillSource) const {
+  if (!RV32I::GPRRegClass.contains(DestinationRegister, SourceRegister))
+    llvm_unreachable("RV32I: impossible reg-to-reg copy");
+
+  // mv rd, rs == addi rd, rs, 0
+  BuildMI(MBB, Position, DL, get(RV32I::ADDI), DestinationRegister)
+      .addReg(SourceRegister, getKillRegState(KillSource))
+      .addImm(0);
 }
 
 void RV32IInstrInfo::storeRegToStackSlot(
