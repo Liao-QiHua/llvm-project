@@ -136,6 +136,22 @@ class RVInstB<bits<3> funct3, bits<7> opcode, dag outs, dag ins,
   let Inst{6-0} = opcode;
 }
 
+// S-type: imm[11:5] rs2[24:20] rs1[19:15] funct3[14:12] imm[4:0] opcode[6:0]
+class RVInstS<bits<3> funct3, bits<7> opcode, dag outs, dag ins,
+              string opcodestr, string argstr, list<dag> pattern = []>
+    : RVInst<outs, ins, opcodestr, argstr, pattern> {
+  bits<12> imm12;
+  bits<5> rs2;
+  bits<5> rs1;
+
+  let Inst{31-25} = imm12{11-5};
+  let Inst{24-20} = rs2;
+  let Inst{19-15} = rs1;
+  let Inst{14-12} = funct3;
+  let Inst{11-7} = imm12{4-0};
+  let Inst{6-0} = opcode;
+}
+
 // U-type: imm[31:12] rd[11:7] opcode[6:0]
 class RVInstU<bits<7> opcode, dag outs, dag ins, string opcodestr,
               string argstr, list<dag> pattern = []>
@@ -342,7 +358,36 @@ def PseudoBR : RVInst<(outs), (ins simm21_lsb0:$imm20), "j", "$imm20"> {
   let isCodeGenOnly = 1;
 }
 
+// --- loads and stores are defined outside the "no side effects" block,
+// because they are memory operations.
+
 } // hasSideEffects = 0, mayLoad = 0, mayStore = 0
+
+class LoadI<bits<3> funct3, string opcodestr>
+    : RVInstI<funct3, OPC_LOAD.Value, (outs GPR:$rd),
+              (ins GPR:$rs1, simm12:$imm12),
+              opcodestr, "$rd, ${imm12}(${rs1})"> {
+  let mayLoad = 1;
+  let mayStore = 0;
+}
+
+class StoreS<bits<3> funct3, string opcodestr>
+    : RVInstS<funct3, OPC_STORE.Value, (outs),
+              (ins GPR:$rs2, GPR:$rs1, simm12:$imm12),
+              opcodestr, "$rs2, ${imm12}(${rs1})"> {
+  let mayLoad = 0;
+  let mayStore = 1;
+}
+
+def LB  : LoadI<0b000, "lb">,  Sched<[WriteLoad, ReadMemBase]>;
+def LH  : LoadI<0b001, "lh">,  Sched<[WriteLoad, ReadMemBase]>;
+def LW  : LoadI<0b010, "lw">,  Sched<[WriteLoad, ReadMemBase]>;
+def LBU : LoadI<0b100, "lbu">, Sched<[WriteLoad, ReadMemBase]>;
+def LHU : LoadI<0b101, "lhu">, Sched<[WriteLoad, ReadMemBase]>;
+
+def SB : StoreS<0b000, "sb">, Sched<[WriteStore, ReadStoreData, ReadMemBase]>;
+def SH : StoreS<0b001, "sh">, Sched<[WriteStore, ReadStoreData, ReadMemBase]>;
+def SW : StoreS<0b010, "sw">, Sched<[WriteStore, ReadStoreData, ReadMemBase]>;
 
 //===----------------------------------------------------------------------===//
 // DAG patterns.

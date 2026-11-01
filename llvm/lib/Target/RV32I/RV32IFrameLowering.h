@@ -26,13 +26,19 @@ public:
                             /*LAO=*/0),
         STI(Subtarget) {}
 
+  // No frame pointer: all frame objects are addressed relative to sp.  This
+  // keeps the prologue/epilogue minimal and lets the prologue/epilogue
+  // inserter place the callee-saved spills itself.
   bool hasFP(const MachineFunction & /*MF*/) const override { return false; }
 
-  void emitPrologue(MachineFunction & /*MF*/,
-                    MachineBasicBlock & /*MBB*/) const override {}
+  void emitPrologue(MachineFunction &MF,
+                    MachineBasicBlock &MBB) const override;
 
-  void emitEpilogue(MachineFunction & /*MF*/,
-                    MachineBasicBlock & /*MBB*/) const override {}
+  void emitEpilogue(MachineFunction &MF,
+                    MachineBasicBlock &MBB) const override;
+
+  void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
+                            RegScavenger *RS = nullptr) const override;
 };
 
 } // namespace llvm

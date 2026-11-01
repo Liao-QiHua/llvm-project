@@ -45,12 +45,30 @@ BitVector RV32IRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 }
 
 bool RV32IRegisterInfo::eliminateFrameIndex(
-    MachineBasicBlock::iterator /*II*/, int /*SPAdj*/, unsigned /*FIOperandNum*/,
+    MachineBasicBlock::iterator II, int /*SPAdj*/, unsigned FIOperandNum,
     RegScavenger * /*RS*/) const {
-  // Stack frame support is added in a later patch.
-  llvm_unreachable("RV32I: frame index elimination is implemented later");
+  MachineInstr &MI = *II;
+  MachineFunction &MF = *MI.getMF();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+
+  int FI = MI.getOperand(FIOperandNum).getIndex();
+
+  // Ask the frame lowering for the offset of this object relative to the
+  // frame register (s0).  The instruction currently holds an offset of 0.
+  Register FrameReg;
+  int Offset = MF.getSubtarget()
+                   .getFrameLowering()
+                   ->getFrameIndexReference(MF, FI, FrameReg)
+                   .getFixed();
+
+  MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, /*isDef=*/false);
+  MI.getOperand(FIOperandNum + 1).setImm(
+      Offset + MI.getOperand(FIOperandNum + 1).getImm());
+  return true;
 }
 
-Register RV32IRegisterInfo::getFrameRegister(const MachineFunction & /*MF*/) const {
-  return RV32I::X8;
+Register RV32IRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
+  // No frame pointer: frame objects are addressed relative to sp (x2).
+  return MF.getSubtarget().getFrameLowering()->hasFP(MF) ? RV32I::X8
+                                                         : RV32I::X2;
 }

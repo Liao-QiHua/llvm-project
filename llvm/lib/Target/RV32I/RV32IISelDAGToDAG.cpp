@@ -10,8 +10,11 @@
 #include "RV32IISelLowering.h"
 #include "RV32ISubtarget.h"
 #include "RV32ITargetMachine.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 
 using namespace llvm;
@@ -39,6 +42,9 @@ public:
 
 private:
   bool selectConstant(SDNode *N);
+  bool selectAddr(SDValue Addr, SDValue &Base, int64_t &Offset);
+  bool selectLoad(SDNode *N);
+  bool selectStore(SDNode *N);
 };
 
 } // end anonymous namespace
@@ -84,12 +90,132 @@ void RV32IDAGToDAGISel::Select(SDNode *N) {
     if (selectConstant(N))
       return;
     break;
+  case ISD::LOAD:
+    if (selectLoad(N))
+      return;
+    break;
+  case ISD::STORE:
+    if (selectStore(N))
+      return;
+    break;
+  case ISD::FrameIndex: {
+    // The address of a stack object: addi rd, s0/fp, 0.  The frame index is
+    // resolved to a real offset by eliminateFrameIndex later.
+    SDLoc DL(N);
+    int FI = cast<FrameIndexSDNode>(N)->getIndex();
+    SDValue TFI = CurDAG->getTargetFrameIndex(FI, MVT::i32);
+    SDValue Imm = CurDAG->getTargetConstant(0, DL, MVT::i32);
+    SDNode *New =
+        CurDAG->getMachineNode(RV32I::ADDI, DL, MVT::i32, TFI, Imm);
+    ReplaceNode(N, New);
+    return;
+  }
   default:
     break;
   }
 
   // Fall back to the TableGen-generated pattern matcher.
   SelectCode(N);
+}
+
+// Split an address into a base register and an immediate offset.
+// Supports:
+//   FrameIndex
+//   (add GPR, simm12)
+//   GPR
+bool RV32IDAGToDAGISel::selectAddr(SDValue Addr, SDValue &Base,
+                                   int64_t &Offset) {
+  Offset = 0;
+
+  if (Addr.getOpcode() == ISD::ADD) {
+    if (auto *CN = dyn_cast<ConstantSDNode>(Addr.getOperand(1))) {
+      int64_t Imm = CN->getSExtValue();
+      if (isInt<12>(Imm)) {
+        Offset = Imm;
+        Addr = Addr.getOperand(0);
+      }
+    }
+  }
+
+  if (Addr.getOpcode() == ISD::FrameIndex) {
+    Base = CurDAG->getTargetFrameIndex(
+        cast<FrameIndexSDNode>(Addr)->getIndex(), MVT::i32);
+    return true;
+  }
+
+  Base = Addr;
+  return true;
+}
+
+bool RV32IDAGToDAGISel::selectLoad(SDNode *N) {
+  auto *LD = cast<LoadSDNode>(N);
+  assert(!LD->isIndexed() && "RV32I: indexed loads are not supported");
+
+  EVT VT = N->getValueType(0);
+  EVT MemVT = LD->getMemoryVT();
+
+  unsigned Opc;
+  switch (MemVT.getSimpleVT().SimpleTy) {
+  case MVT::i8:
+    Opc = LD->getExtensionType() == ISD::SEXTLOAD ? RV32I::LB : RV32I::LBU;
+    break;
+  case MVT::i16:
+    Opc = LD->getExtensionType() == ISD::SEXTLOAD ? RV32I::LH : RV32I::LHU;
+    break;
+  case MVT::i32:
+    Opc = RV32I::LW;
+    break;
+  default:
+    report_fatal_error("RV32I: unsupported load type");
+  }
+
+  SDLoc DL(N);
+  SDValue Base;
+  int64_t Offset;
+  selectAddr(LD->getBasePtr(), Base, Offset);
+
+  // The chain operand goes last; the explicit machine operands come first.
+  SDValue Ops[] = {Base, CurDAG->getTargetConstant(Offset, DL, VT),
+                   LD->getChain()};
+  SDNode *New = CurDAG->getMachineNode(Opc, DL, {VT, MVT::Other}, Ops);
+  CurDAG->setNodeMemRefs(cast<MachineSDNode>(New), {LD->getMemOperand()});
+  ReplaceNode(N, New);
+  return true;
+}
+
+bool RV32IDAGToDAGISel::selectStore(SDNode *N) {
+  auto *ST = cast<StoreSDNode>(N);
+  assert(!ST->isIndexed() && "RV32I: indexed stores are not supported");
+
+  EVT MemVT = ST->getMemoryVT();
+  unsigned Opc;
+  switch (MemVT.getSimpleVT().SimpleTy) {
+  case MVT::i8:
+    Opc = RV32I::SB;
+    break;
+  case MVT::i16:
+    Opc = RV32I::SH;
+    break;
+  case MVT::i32:
+    Opc = RV32I::SW;
+    break;
+  default:
+    report_fatal_error("RV32I: unsupported store type");
+  }
+
+  SDLoc DL(N);
+  SDValue Base;
+  int64_t Offset;
+  selectAddr(ST->getBasePtr(), Base, Offset);
+
+  // Machine operand order is (value, base, offset), with the chain last.
+  SDValue Ops[] = {ST->getValue(), Base,
+                   CurDAG->getTargetConstant(Offset, DL, MVT::i32),
+                   ST->getChain()};
+  SDNode *New = CurDAG->getMachineNode(Opc, DL, MVT::Other, Ops);
+  CurDAG->setNodeMemRefs(cast<MachineSDNode>(New), {ST->getMemOperand()});
+  ReplaceNode(N, New);
+  return true;
 }
 
 FunctionPass *llvm::createRV32IISelDag(RV32ITargetMachine &TM,

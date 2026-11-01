@@ -45,6 +45,24 @@ public:
                             const TargetRegisterClass *RegisterClass,
                             const TargetRegisterInfo *RegisterInfo,
                             Register VReg) const override;
+
+  // Branch analysis and modification, used by the branch folder and by
+  // tail merging.
+  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+                     MachineBasicBlock *&FBB,
+                     SmallVectorImpl<MachineOperand> &Cond,
+                     bool AllowModify = false) const override;
+
+  unsigned removeBranch(MachineBasicBlock &MBB,
+                        int *BytesRemoved = nullptr) const override;
+
+  unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                        MachineBasicBlock *FBB,
+                        ArrayRef<MachineOperand> Cond, const DebugLoc &DL,
+                        int *BytesAdded = nullptr) const override;
+
+  bool
+  reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
 };
 
 } // namespace llvm
