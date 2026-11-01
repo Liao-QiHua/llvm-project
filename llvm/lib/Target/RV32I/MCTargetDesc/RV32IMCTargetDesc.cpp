@@ -11,8 +11,11 @@
 #include "RV32IMCAsmInfo.h"
 #include "TargetInfo/RV32ITargetInfo.h"
 #include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/TargetParser/Triple.h"
@@ -65,6 +68,18 @@ static MCInstPrinter *createRV32IMCInstPrinter(const Triple & /*T*/,
   return nullptr;
 }
 
+static MCStreamer *createRV32IMCStreamer(const Triple &T, MCContext &Ctx,
+                                         std::unique_ptr<MCAsmBackend> &&MAB,
+                                         std::unique_ptr<MCObjectWriter> &&OW,
+                                         std::unique_ptr<MCCodeEmitter> &&Emitter,
+                                         bool RelaxAll) {
+  if (!T.isOSBinFormatELF())
+    llvm_unreachable("RV32I: only ELF object files are supported");
+
+  return createELFStreamer(Ctx, std::move(MAB), std::move(OW),
+                           std::move(Emitter), RelaxAll);
+}
+
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeRV32ITargetMC() {
   RegisterMCAsmInfo<RV32IMCAsmInfo> X(getTheRV32ITarget());
 
@@ -76,4 +91,10 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeRV32ITargetMC() {
                                           createRV32IMCSubtargetInfo);
   TargetRegistry::RegisterMCInstPrinter(getTheRV32ITarget(),
                                         createRV32IMCInstPrinter);
+  TargetRegistry::RegisterMCCodeEmitter(getTheRV32ITarget(),
+                                        createRV32IMCCodeEmitter);
+  TargetRegistry::RegisterMCAsmBackend(getTheRV32ITarget(),
+                                       createRV32IAsmBackend);
+  TargetRegistry::RegisterELFStreamer(getTheRV32ITarget(),
+                                      createRV32IMCStreamer);
 }

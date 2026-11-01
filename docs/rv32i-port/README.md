@@ -54,10 +54,10 @@ ninja -C build-rv32i llc
 | 03 | 参数与整数 ALU | 寄存器分配、`add/sub/and/or/xor/slt/sltu/shift` 及其模式 | `add3(a,b,c)` |
 | 04 | 控制流 | 条件分支、比较、无条件跳转、循环 | `if/else`、`while` |
 | 05 | 内存与栈帧 | load/store、alloca、frame index、prologue/epilogue、spill | 局部数组、多变量 |
-| 06 | 函数调用 | `LowerCall`、`jal`、callee-saved、递归 | `fact(n)` |
-| 07 | 目标文件 | MCCodeEmitter、AsmBackend、ELF、重定位 | `-filetype=obj` + `readelf` |
-| 08 | 汇编器/反汇编器 | asm matcher、disassembler | `llvm-mc -show-encoding` |
-| 09 | 完整化 | 全部 RV32I 指令、调度模型、测试 | 与 `riscv32` 输出对照 |
+| 06 | 函数调用 | `LowerCall`、`j`/`call`、callee-saved、递归 | `fact(n)` |
+| 07 | 目标文件 | MCCodeEmitter、AsmBackend、ELF、重定位 | `-filetype=obj` + `llvm-readobj` |
+| 08 | 全局地址 / 汇编器 / 反汇编器 | `lui/addi` + HI20/LO12、asm matcher、disassembler | `llvm-mc -show-encoding` |
+| 09 | 完整化 | 全部 RV32I 指令、调度模型、对照测试 | 与 `riscv32` 输出对照 |
 
 每个补丁的详细说明见同目录下的 `01-*.md`、`02-*.md` … 文件，包含：
 
@@ -92,6 +92,6 @@ ninja -C build-rv32i llc
 - [x] 04 控制流
 - [x] 05 内存与栈帧
 - [x] 06 函数调用
-- [ ] 07 目标文件
-- [ ] 08 汇编器/反汇编器
-- [ ] 09 完整化
+- [x] 07 目标文件
+- [ ] 08 全局地址 / 汇编器 / 反汇编器
+- [ ] 09 完整化与对照测试

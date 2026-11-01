@@ -1,6 +1,9 @@
 add_llvm_component_library(LLVMRV32IDesc
+  RV32IAsmBackend.cpp
+  RV32IELFObjectWriter.cpp
   RV32IInstPrinter.cpp
   RV32IMCAsmInfo.cpp
+  RV32IMCCodeEmitter.cpp
   RV32IMCTargetDesc.cpp
 
   LINK_COMPONENTS

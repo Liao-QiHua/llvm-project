@@ -18,12 +18,23 @@
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
+class MCAsmBackend;
 class MCCodeEmitter;
 class MCContext;
 class MCInstrInfo;
+class MCObjectTargetWriter;
 class MCSubtargetInfo;
 class Target;
 
+MCCodeEmitter *createRV32IMCCodeEmitter(const MCInstrInfo &MCII,
+                                        MCContext &Ctx);
+
+MCAsmBackend *createRV32IAsmBackend(const Target &T, const MCSubtargetInfo &STI,
+                                    const MCRegisterInfo &MRI,
+                                    const MCTargetOptions &Options);
+
+std::unique_ptr<MCObjectTargetWriter> createRV32IELFObjectWriter(uint8_t OSABI,
+                                                                 bool Is64Bit);
 } // namespace llvm
 
 // Defines symbolic names for RV32I registers.

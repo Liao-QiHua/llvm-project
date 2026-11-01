@@ -5,6 +5,7 @@ set(LLVM_TARGET_DEFINITIONS RV32I.td)
 tablegen(LLVM RV32IGenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM RV32IGenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM RV32IGenInstrInfo.inc -gen-instr-info)
+tablegen(LLVM RV32IGenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM RV32IGenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM RV32IGenSubtargetInfo.inc -gen-subtarget)
 

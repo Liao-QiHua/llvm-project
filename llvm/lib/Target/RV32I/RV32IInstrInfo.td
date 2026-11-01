@@ -49,11 +49,19 @@ def uimmlog2xlen : Operand<i32>, ImmLeaf<i32, [{
 }]>;
 
 // Branch/jump targets.  These are not immediates at the DAG level: instruction
-// selection binds them to basic blocks (bb operands).
-def simm13_lsb0 : Operand<OtherVT>;
-def simm21_lsb0 : Operand<OtherVT>;
+// selection binds them to basic blocks (bb operands).  The encoder methods
+// record a fixup and encode zero; the assembler back end patches the
+// displacement (or emits a relocation).
+def simm13_lsb0 : Operand<OtherVT> {
+  let EncoderMethod = "getBranchTargetOpValue";
+}
+def simm21_lsb0 : Operand<OtherVT> {
+  let EncoderMethod = "getJumpTargetOpValue";
+}
 // A direct call target (symbol reference).
-def call_symbol : Operand<i32>;
+def call_symbol : Operand<i32> {
+  let EncoderMethod = "getCallTargetOpValue";
+}
 
 //===----------------------------------------------------------------------===//
 // Instruction base classes.
@@ -155,6 +163,23 @@ class RVInstS<bits<3> funct3, bits<7> opcode, dag outs, dag ins,
   let Inst{19-15} = rs1;
   let Inst{14-12} = funct3;
   let Inst{11-7} = imm12{4-0};
+  let Inst{6-0} = opcode;
+}
+
+// J-type with a fixed rd (no destination operand).  Used by PseudoBR and
+// PseudoCALL, whose only operand is a symbol.  Keeping imm20 as a real field
+// bound to the operand is important: it is what makes TableGen actually call
+// the operand's encoder method (and therefore create a fixup).
+class RVInstJNoRd<bits<7> opcode, bits<5> rdVal, dag outs, dag ins,
+                  string opcodestr, string argstr>
+    : RVInst<outs, ins, opcodestr, argstr> {
+  bits<20> imm20;
+
+  let Inst{31} = imm20{19};
+  let Inst{30-21} = imm20{9-0};
+  let Inst{20} = imm20{10};
+  let Inst{19-12} = imm20{18-11};
+  let Inst{11-7} = rdVal;
   let Inst{6-0} = opcode;
 }
 
@@ -353,21 +378,21 @@ def JAL : RVInstJ<OPC_JAL.Value, (outs GPR:$rd), (ins simm21_lsb0:$imm20),
   let isBarrier = 1;
 }
 
-// Direct function call.  ra (x1) is implicitly defined.  For assembly output
-// it is printed as "call symbol"; the encoding and relocation are handled by
-// the MC layer in a later patch.
-def PseudoCALL : RVInst<(outs), (ins call_symbol:$func), "call", "$func"> {
-  let Inst = 0x000000EF; // jal ra, 0
+// Direct function call: jal ra, symbol.  ra (x1) is implicitly defined.
+// Printed as "call symbol"; the assembler back end patches the displacement
+// or emits an R_RISCV_CALL relocation.
+def PseudoCALL
+    : RVInstJNoRd<OPC_JAL.Value, /*rd=*/1, (outs), (ins call_symbol:$imm20),
+                  "call", "$imm20"> {
   let isCall = 1;
   let Defs = [X1];
   let hasSideEffects = 1;
 }
 
-// Unconditional branch.  It has no destination register, so it cannot be
-// written as "jal x0, target" in a pattern (patterns only provide input
-// operands); it is printed as the "j" alias instead.
-def PseudoBR : RVInst<(outs), (ins simm21_lsb0:$imm20), "j", "$imm20"> {
-  let Inst = 0x0000006F; // jal x0, 0
+// Unconditional branch: jal x0, target, printed as "j target".
+def PseudoBR
+    : RVInstJNoRd<OPC_JAL.Value, /*rd=*/0, (outs), (ins simm21_lsb0:$imm20),
+                  "j", "$imm20"> {
   let isBranch = 1;
   let isTerminator = 1;
   let isBarrier = 1;
