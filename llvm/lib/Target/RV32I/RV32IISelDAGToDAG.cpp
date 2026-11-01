@@ -110,6 +110,20 @@ void RV32IDAGToDAGISel::Select(SDNode *N) {
     ReplaceNode(N, New);
     return;
   }
+  case RV32IISD::CALL: {
+    // Select the call directly instead of using a TableGen pattern: the
+    // callee is a symbolic operand whose type does not have to match a
+    // register class.
+    SDLoc DL(N);
+    SDValue Callee = N->getOperand(0);
+    SDValue Chain = N->getOperand(1);
+
+    SDValue Ops[] = {Callee, Chain};
+    SDNode *New =
+        CurDAG->getMachineNode(RV32I::PseudoCALL, DL, MVT::Other, Ops);
+    ReplaceNode(N, New);
+    return;
+  }
   default:
     break;
   }

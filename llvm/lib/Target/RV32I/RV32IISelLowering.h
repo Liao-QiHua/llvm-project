@@ -21,6 +21,8 @@ enum NodeType : unsigned {
   RET,
   // Conditional branch: (lhs, rhs, condcode, dest).
   BR_CC,
+  // Direct function call: (callee), with chain.
+  CALL,
 };
 } // namespace RV32IISD
 
@@ -39,6 +41,9 @@ public:
                                const SmallVectorImpl<ISD::InputArg> &Ins,
                                const SDLoc &DL, SelectionDAG &DAG,
                                SmallVectorImpl<SDValue> &InVals) const override;
+
+  SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
+                    SmallVectorImpl<SDValue> &InVals) const override;
 
   SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,

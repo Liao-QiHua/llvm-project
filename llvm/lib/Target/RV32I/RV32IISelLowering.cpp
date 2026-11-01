@@ -46,6 +46,8 @@ const char *RV32ITargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "RV32IISD::RET";
   case RV32IISD::BR_CC:
     return "RV32IISD::BR_CC";
+  case RV32IISD::CALL:
+    return "RV32IISD::CALL";
   }
   return nullptr;
 }
@@ -131,6 +133,62 @@ SDValue RV32ITargetLowering::LowerFormalArguments(
     Register VReg = MF.addLiveIn(ArgRegs[ArgNo], &RV32I::GPRRegClass);
     InVals.push_back(DAG.getCopyFromReg(Chain, DL, VReg, VT));
     ++ArgNo;
+  }
+
+  return Chain;
+}
+
+SDValue RV32ITargetLowering::LowerCall(CallLoweringInfo &CLI,
+                                       SmallVectorImpl<SDValue> &InVals) const {
+  SDValue Chain = CLI.Chain;
+  SDValue Callee = CLI.Callee;
+  const SDLoc &DL = CLI.DL;
+  SelectionDAG &DAG = CLI.DAG;
+  auto &Outs = CLI.Outs;
+  auto &OutVals = CLI.OutVals;
+  auto &Ins = CLI.Ins;
+
+  if (CLI.IsVarArg)
+    report_fatal_error("RV32I: varargs calls are not supported yet");
+  if (CLI.IsTailCall)
+    report_fatal_error("RV32I: tail calls are not supported yet");
+  if (Outs.size() > 8)
+    report_fatal_error(
+        "RV32I: stack arguments are implemented in a later patch");
+
+  // Only direct calls are supported: turn the callee into a symbolic operand.
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
+  if (Callee.getOpcode() == ISD::GlobalAddress) {
+    Callee = DAG.getTargetGlobalAddress(
+        cast<GlobalAddressSDNode>(Callee)->getGlobal(), DL, PtrVT);
+  } else if (Callee.getOpcode() == ISD::ExternalSymbol) {
+    Callee = DAG.getTargetExternalSymbol(
+        cast<ExternalSymbolSDNode>(Callee)->getSymbol(), PtrVT);
+  } else {
+    report_fatal_error("RV32I: indirect calls are not supported yet");
+  }
+
+  // Move arguments into a0-a7.
+  static const MCPhysReg ArgRegs[] = {
+      RV32I::X10, RV32I::X11, RV32I::X12, RV32I::X13,
+      RV32I::X14, RV32I::X15, RV32I::X16, RV32I::X17};
+
+  for (unsigned I = 0; I < Outs.size(); ++I) {
+    if (Outs[I].VT != MVT::i32)
+      report_fatal_error("RV32I: only i32 arguments are supported yet");
+    Chain = DAG.getCopyToReg(Chain, DL, ArgRegs[I], OutVals[I]);
+  }
+
+  // Emit the call itself.
+  Chain = DAG.getNode(RV32IISD::CALL, DL, MVT::Other, Callee, Chain);
+
+  // The result (if any) is returned in a0.
+  if (Ins.size() > 1)
+    report_fatal_error("RV32I: multiple return values are not supported yet");
+  if (!Ins.empty()) {
+    SDValue V = DAG.getCopyFromReg(Chain, DL, RV32I::X10, Ins[0].VT);
+    InVals.push_back(V);
+    Chain = V.getValue(1);
   }
 
   return Chain;

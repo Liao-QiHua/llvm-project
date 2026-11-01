@@ -29,6 +29,10 @@ def SDT_RV32IBrCC : SDTypeProfile<0, 4, [SDTCisSameAs<0, 1>,
                                          SDTCisVT<3, OtherVT>]>;
 def rv32i_brcc : SDNode<"RV32IISD::BR_CC", SDT_RV32IBrCC, [SDNPHasChain]>;
 
+// Direct call: (rv32i_call callee), with chain.
+def SDT_RV32ICall : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
+def rv32i_call : SDNode<"RV32IISD::CALL", SDT_RV32ICall, [SDNPHasChain]>;
+
 //===----------------------------------------------------------------------===//
 // Operands.
 //===----------------------------------------------------------------------===//
@@ -48,6 +52,8 @@ def uimmlog2xlen : Operand<i32>, ImmLeaf<i32, [{
 // selection binds them to basic blocks (bb operands).
 def simm13_lsb0 : Operand<OtherVT>;
 def simm21_lsb0 : Operand<OtherVT>;
+// A direct call target (symbol reference).
+def call_symbol : Operand<i32>;
 
 //===----------------------------------------------------------------------===//
 // Instruction base classes.
@@ -345,6 +351,16 @@ def JAL : RVInstJ<OPC_JAL.Value, (outs GPR:$rd), (ins simm21_lsb0:$imm20),
   let isBranch = 1;
   let isTerminator = 1;
   let isBarrier = 1;
+}
+
+// Direct function call.  ra (x1) is implicitly defined.  For assembly output
+// it is printed as "call symbol"; the encoding and relocation are handled by
+// the MC layer in a later patch.
+def PseudoCALL : RVInst<(outs), (ins call_symbol:$func), "call", "$func"> {
+  let Inst = 0x000000EF; // jal ra, 0
+  let isCall = 1;
+  let Defs = [X1];
+  let hasSideEffects = 1;
 }
 
 // Unconditional branch.  It has no destination register, so it cannot be
