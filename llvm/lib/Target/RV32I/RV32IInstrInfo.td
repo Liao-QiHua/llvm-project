@@ -8,9 +8,8 @@
 //
 // RV32I instruction definitions.
 //
-// Patch 03 adds the complete integer ALU subset: add/sub, and/or/xor,
-// slt/sltu, shifts by immediate and by register, plus the DAG patterns that
-// select them.
+// Patch 04 adds control flow: conditional branches (B-type), unconditional
+// jumps (J-type) and the custom BR_CC node used to select them.
 //
 //===----------------------------------------------------------------------===//
 
@@ -23,6 +22,12 @@
 // the CopyToReg nodes alive until instruction selection.  Selected to RET below.
 def rv32i_ret : SDNode<"RV32IISD::RET", SDTNone,
                        [SDNPHasChain, SDNPVariadic]>;
+
+// Conditional branch: (rv32i_brcc lhs, rhs, condcode, dest), with chain.
+def SDT_RV32IBrCC : SDTypeProfile<0, 4, [SDTCisSameAs<0, 1>,
+                                         SDTCisVT<2, OtherVT>,
+                                         SDTCisVT<3, OtherVT>]>;
+def rv32i_brcc : SDNode<"RV32IISD::BR_CC", SDT_RV32IBrCC, [SDNPHasChain]>;
 
 //===----------------------------------------------------------------------===//
 // Operands.
@@ -38,6 +43,11 @@ def uimm20 : Operand<i32>, ImmLeaf<i32, [{ return isUInt<20>(Imm); }]>;
 def uimmlog2xlen : Operand<i32>, ImmLeaf<i32, [{
   return Imm >= 0 && Imm < 32;
 }]>;
+
+// Branch/jump targets.  These are not immediates at the DAG level: instruction
+// selection binds them to basic blocks (bb operands).
+def simm13_lsb0 : Operand<OtherVT>;
+def simm21_lsb0 : Operand<OtherVT>;
 
 //===----------------------------------------------------------------------===//
 // Instruction base classes.
@@ -108,6 +118,24 @@ class RVInstIShift<bits<7> funct7, bits<3> funct3, bits<7> opcode, dag outs,
   let Inst{6-0} = opcode;
 }
 
+// B-type: imm[12|10:5] rs2[24:20] rs1[19:15] funct3[14:12] imm[4:1|11] opcode[6:0]
+class RVInstB<bits<3> funct3, bits<7> opcode, dag outs, dag ins,
+              string opcodestr, string argstr, list<dag> pattern = []>
+    : RVInst<outs, ins, opcodestr, argstr, pattern> {
+  bits<12> imm12;
+  bits<5> rs2;
+  bits<5> rs1;
+
+  let Inst{31} = imm12{11};
+  let Inst{30-25} = imm12{9-4};
+  let Inst{24-20} = rs2;
+  let Inst{19-15} = rs1;
+  let Inst{14-12} = funct3;
+  let Inst{11-8} = imm12{3-0};
+  let Inst{7} = imm12{10};
+  let Inst{6-0} = opcode;
+}
+
 // U-type: imm[31:12] rd[11:7] opcode[6:0]
 class RVInstU<bits<7> opcode, dag outs, dag ins, string opcodestr,
               string argstr, list<dag> pattern = []>
@@ -116,6 +144,21 @@ class RVInstU<bits<7> opcode, dag outs, dag ins, string opcodestr,
   bits<5> rd;
 
   let Inst{31-12} = imm20;
+  let Inst{11-7} = rd;
+  let Inst{6-0} = opcode;
+}
+
+// J-type: imm[20|10:1|11|19:12] rd[11:7] opcode[6:0]
+class RVInstJ<bits<7> opcode, dag outs, dag ins, string opcodestr,
+              string argstr, list<dag> pattern = []>
+    : RVInst<outs, ins, opcodestr, argstr, pattern> {
+  bits<20> imm20;
+  bits<5> rd;
+
+  let Inst{31} = imm20{19};
+  let Inst{30-21} = imm20{9-0};
+  let Inst{20} = imm20{10};
+  let Inst{19-12} = imm20{18-11};
   let Inst{11-7} = rd;
   let Inst{6-0} = opcode;
 }
@@ -230,6 +273,75 @@ def SRA : RVInstR<0b0100000, 0b101, OPC_OP.Value, (outs GPR:$rd),
                   (ins GPR:$rs1, GPR:$rs2), "sra", "$rd, $rs1, $rs2">,
           Sched<[WriteShift, ReadIALU, ReadIALU]>;
 
+// --- control flow ---
+def BEQ : RVInstB<0b000, OPC_BRANCH.Value, (outs),
+                  (ins GPR:$rs1, GPR:$rs2, simm13_lsb0:$imm12),
+                  "beq", "$rs1, $rs2, $imm12">,
+          Sched<[WriteJmp, ReadIALU, ReadIALU]> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+}
+def BNE : RVInstB<0b001, OPC_BRANCH.Value, (outs),
+                  (ins GPR:$rs1, GPR:$rs2, simm13_lsb0:$imm12),
+                  "bne", "$rs1, $rs2, $imm12">,
+          Sched<[WriteJmp, ReadIALU, ReadIALU]> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+}
+def BLT : RVInstB<0b100, OPC_BRANCH.Value, (outs),
+                  (ins GPR:$rs1, GPR:$rs2, simm13_lsb0:$imm12),
+                  "blt", "$rs1, $rs2, $imm12">,
+          Sched<[WriteJmp, ReadIALU, ReadIALU]> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+}
+def BGE : RVInstB<0b101, OPC_BRANCH.Value, (outs),
+                  (ins GPR:$rs1, GPR:$rs2, simm13_lsb0:$imm12),
+                  "bge", "$rs1, $rs2, $imm12">,
+          Sched<[WriteJmp, ReadIALU, ReadIALU]> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+}
+def BLTU : RVInstB<0b110, OPC_BRANCH.Value, (outs),
+                   (ins GPR:$rs1, GPR:$rs2, simm13_lsb0:$imm12),
+                   "bltu", "$rs1, $rs2, $imm12">,
+           Sched<[WriteJmp, ReadIALU, ReadIALU]> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+}
+def BGEU : RVInstB<0b111, OPC_BRANCH.Value, (outs),
+                   (ins GPR:$rs1, GPR:$rs2, simm13_lsb0:$imm12),
+                   "bgeu", "$rs1, $rs2, $imm12">,
+           Sched<[WriteJmp, ReadIALU, ReadIALU]> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+}
+
+// jal x0, target == j target  (unconditional branch)
+def JAL : RVInstJ<OPC_JAL.Value, (outs GPR:$rd), (ins simm21_lsb0:$imm20),
+                  "jal", "$rd, $imm20">, Sched<[WriteJal]> {
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+}
+
+// Unconditional branch.  It has no destination register, so it cannot be
+// written as "jal x0, target" in a pattern (patterns only provide input
+// operands); it is printed as the "j" alias instead.
+def PseudoBR : RVInst<(outs), (ins simm21_lsb0:$imm20), "j", "$imm20"> {
+  let Inst = 0x0000006F; // jal x0, 0
+  let isBranch = 1;
+  let isTerminator = 1;
+  let isBarrier = 1;
+  let isCodeGenOnly = 1;
+}
+
 } // hasSideEffects = 0, mayLoad = 0, mayStore = 0
 
 //===----------------------------------------------------------------------===//
@@ -264,3 +376,20 @@ def : Pat<(i32 (srl GPR:$rs1, uimmlog2xlen:$imm)),
 def : Pat<(i32 (sra GPR:$rs1, GPR:$rs2)), (SRA GPR:$rs1, GPR:$rs2)>;
 def : Pat<(i32 (sra GPR:$rs1, uimmlog2xlen:$imm)),
           (SRAI GPR:$rs1, uimmlog2xlen:$imm)>;
+
+// Conditional branches.  The CondCode value selects which B-type
+// instruction implements the comparison.
+multiclass BccPat<CondCode Cond, RVInstB Inst> {
+  def : Pat<(rv32i_brcc GPR:$rs1, GPR:$rs2, Cond, bb:$dst),
+            (Inst GPR:$rs1, GPR:$rs2, bb:$dst)>;
+}
+
+defm : BccPat<SETEQ, BEQ>;
+defm : BccPat<SETNE, BNE>;
+defm : BccPat<SETLT, BLT>;
+defm : BccPat<SETGE, BGE>;
+defm : BccPat<SETULT, BLTU>;
+defm : BccPat<SETUGE, BGEU>;
+
+// Unconditional branch: j dest
+def : Pat<(br bb:$dst), (PseudoBR bb:$dst)>;

@@ -19,6 +19,8 @@ enum NodeType : unsigned {
   FIRST_NUMBER = ISD::BUILTIN_OP_END,
   // Return with a chain operand.
   RET,
+  // Conditional branch: (lhs, rhs, condcode, dest).
+  BR_CC,
 };
 } // namespace RV32IISD
 
@@ -30,6 +32,8 @@ public:
 
   const char *getTargetNodeName(unsigned Opcode) const override;
 
+  SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+
   SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
                                bool IsVarArg,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -40,6 +44,9 @@ public:
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
                       const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
                       SelectionDAG &DAG) const override;
+
+private:
+  SDValue lowerBRCOND(SDValue Op, SelectionDAG &DAG) const;
 };
 
 } // namespace llvm

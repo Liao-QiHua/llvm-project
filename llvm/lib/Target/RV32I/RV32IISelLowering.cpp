@@ -24,6 +24,14 @@ RV32ITargetLowering::RV32ITargetLowering(const TargetMachine &TM,
   setStackPointerRegisterToSaveRestore(RV32I::X2);
   setBooleanContents(ZeroOrOneBooleanContent);
 
+  // Conditional branches are lowered to the target BR_CC node, which is then
+  // selected to a B-type instruction with the right condition.
+  //
+  // BR_CC itself is expanded into (setcc + brcond) by the legalizer; the
+  // brcond is then handled by lowerBRCOND below.
+  setOperationAction(ISD::BR_CC, MVT::i32, Expand);
+  setOperationAction(ISD::BRCOND, MVT::Other, Custom);
+
   setMinFunctionAlignment(Align(4));
   setPrefFunctionAlignment(Align(4));
 
@@ -36,8 +44,64 @@ const char *RV32ITargetLowering::getTargetNodeName(unsigned Opcode) const {
     break;
   case RV32IISD::RET:
     return "RV32IISD::RET";
+  case RV32IISD::BR_CC:
+    return "RV32IISD::BR_CC";
   }
   return nullptr;
+}
+
+SDValue RV32ITargetLowering::LowerOperation(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  switch (Op.getOpcode()) {
+  case ISD::BRCOND:
+    return lowerBRCOND(Op, DAG);
+  default:
+    llvm_unreachable("RV32I: unexpected operation in LowerOperation");
+  }
+}
+
+// brcond(setcc(lhs, rhs, cc), dest)
+//   ==>  rv32i_brcc lhs, rhs, cc, dest
+//
+// TableGen then picks BEQ/BNE/BLT/BGE/BLTU/BGEU based on the condition code.
+SDValue RV32ITargetLowering::lowerBRCOND(SDValue Op,
+                                         SelectionDAG &DAG) const {
+  SDValue CondV = Op.getOperand(1);
+  SDLoc DL(Op);
+
+  if (CondV.getOpcode() != ISD::SETCC ||
+      CondV.getOperand(0).getValueType() != MVT::i32)
+    report_fatal_error("RV32I: brcond on a non-i32 setcc is not supported yet");
+
+  SDValue LHS = CondV.getOperand(0);
+  SDValue RHS = CondV.getOperand(1);
+  ISD::CondCode CC = cast<CondCodeSDNode>(CondV.getOperand(2))->get();
+
+  // Normalize the condition to EQ/NE/LT/GE/ULT/UGE by swapping the operands
+  // of the "greater than" forms.  RV32I has no BGT/BLE instruction.
+  switch (CC) {
+  case ISD::SETGT:
+    CC = ISD::SETLT;
+    std::swap(LHS, RHS);
+    break;
+  case ISD::SETLE:
+    CC = ISD::SETGE;
+    std::swap(LHS, RHS);
+    break;
+  case ISD::SETUGT:
+    CC = ISD::SETULT;
+    std::swap(LHS, RHS);
+    break;
+  case ISD::SETULE:
+    CC = ISD::SETUGE;
+    std::swap(LHS, RHS);
+    break;
+  default:
+    break;
+  }
+
+  return DAG.getNode(RV32IISD::BR_CC, DL, Op.getValueType(), Op.getOperand(0),
+                     LHS, RHS, DAG.getCondCode(CC), Op.getOperand(2));
 }
 
 SDValue RV32ITargetLowering::LowerFormalArguments(
